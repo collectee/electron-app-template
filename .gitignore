@@ -4,3 +4,42 @@ node_modules
 dist/
 
 out/
+.npmrc
+cache/
+download-tools.js
+download-tools.bat
+
+# 环境变量文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 日志文件
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 构建输出
+release/
+
+# 临时文件
+*.tmp
+*.temp
+
+# IDE/工具配置
+.cursor/
+.kiro/
+
+# 构建产物
+.webpack/
+exe/
+
+# 不需要追踪的文档
+URL_INTERCEPT_README.md
+src/README.md
+应用架构总结.md
+跳转页面方案.md
