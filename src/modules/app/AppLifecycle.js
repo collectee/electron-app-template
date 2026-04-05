@@ -117,7 +117,7 @@ class AppLifecycle {
    * 设置应用事件监听器
    * @param {Function} createWindowCallback - 创建窗口的回调函数
    */
-  setupAppEventListeners(createWindowCallback) {
+  setupAppEventListeners(createWindowCallback, tokenManager = null) {
     app.whenReady().then(() => {
       log.info('应用程序就绪');
       createWindowCallback();
@@ -130,6 +130,9 @@ class AppLifecycle {
       // 清除token刷新定时器
       if (this.refreshTimeout) {
         clearTimeout(this.refreshTimeout);
+      }
+      if (tokenManager && typeof tokenManager.clearPersistedTokensIfEphemeral === 'function') {
+        tokenManager.clearPersistedTokensIfEphemeral();
       }
     });
 

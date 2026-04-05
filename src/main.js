@@ -266,8 +266,8 @@
     }
 
 
-  // 设置应用事件监听器
-  appLifecycle.setupAppEventListeners(createWindow);
+  // 设置应用事件监听器（传入 tokenManager 以便退出时清除「非持久登录」的 tokens）
+  appLifecycle.setupAppEventListeners(createWindow, tokenManager);
 })().catch(error => {
   console.error('应用启动失败:', error);
   process.exit(1);

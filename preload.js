@@ -9,7 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	// 保存 JWT
 	saveJwt: (token) => ipcRenderer.invoke('save-jwt', token),	
 	// 保存 Access Token 和 Refresh Token
-	saveTokens: (accessToken, refreshToken, indexUrl) => ipcRenderer.invoke('save-tokens', accessToken, refreshToken,indexUrl),
+	saveTokens: (accessToken, refreshToken, indexUrl, persistLogin = true) =>
+		ipcRenderer.invoke('save-tokens', accessToken, refreshToken, indexUrl, persistLogin),
 	// 获取 Access Token
 	getAccessToken: () => ipcRenderer.invoke('get-access-token'),
 	// 获取 Refresh Token

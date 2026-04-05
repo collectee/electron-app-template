@@ -81,10 +81,11 @@ class TokenManager {
    * @param {number} accessExp - 访问令牌过期时间
    * @param {number} refreshExp - 刷新令牌过期时间
    * @param {string} indexUrl - 主页URL（可选，默认为/index）
+   * @param {boolean} persistLogin - 为 true 时关闭应用后仍保留登录（可自动续期）；为 false 时退出应用即删除本次保存的 tokens
    */
-  async saveTokens(accessToken, refreshToken, accessExp, refreshExp, indexUrl = '/index') {
+  async saveTokens(accessToken, refreshToken, accessExp, refreshExp, indexUrl = '/index', persistLogin = true) {
         try {
-          const tokenData = { accessToken, refreshToken, accessExp, refreshExp, indexUrl };
+          const tokenData = { accessToken, refreshToken, accessExp, refreshExp, indexUrl, persistLogin };
 
           let key = await this.keyManager.getStoredKey();
           if (!key) {
@@ -101,11 +102,18 @@ class TokenManager {
           const encryptedData = Buffer.concat([iv, encrypted]);
           this.dataStore.set('encryptedData', encryptedData.toString('base64'));
 
+          // 非持久会话：退出时用同步标记清除 tokens，无需再解密
+          if (persistLogin) {
+            this.dataStore.delete('tokensEphemeral');
+          } else {
+            this.dataStore.set('tokensEphemeral', true);
+          }
+
           // 同步更新内存缓存，后续 decryptTokens 直接走缓存
           this._tokenCache = { ...tokenData };
           this._cacheTime = Date.now();
 
-          logger.info('Tokens 已保存 | accessExp:', formatTimestamp(accessExp), '| refreshExp:', formatTimestamp(refreshExp));
+          logger.info('Tokens 已保存 | accessExp:', formatTimestamp(accessExp), '| refreshExp:', formatTimestamp(refreshExp), '| persistLogin:', persistLogin);
         } catch (error) {
           logger.error('保存 tokens 时出错:', error);
           throw error;
@@ -199,6 +207,10 @@ class TokenManager {
             result.indexUrl = '/index';
           }
 
+          if (typeof result.persistLogin !== 'boolean') {
+            result.persistLogin = true;
+          }
+
           // 写入内存缓存
           this._tokenCache = result;
           this._cacheTime = now;
@@ -225,7 +237,7 @@ class TokenManager {
       this._refreshing = true;
       const startTime = Date.now();
       try {
-        const { refreshToken, refreshExp, indexUrl } = await this.decryptTokens();
+        const { refreshToken, refreshExp, indexUrl, persistLogin } = await this.decryptTokens();
         if (!refreshToken || !refreshExp) {
           logger.info(`[认证] refreshAccessToken: 没有可用的刷新token，耗时 ${Date.now() - startTime}ms`);
           return;
@@ -240,7 +252,8 @@ class TokenManager {
         const finalRefreshToken = newTokens.refresh_token || refreshToken;
         const finalRefreshExp = newTokens.refreshExp || refreshExp;
         const newIndexUrl = newTokens.indexUrl || indexUrl || '/index';
-        await this.saveTokens(newTokens.access_token, finalRefreshToken, newTokens.accessExp, finalRefreshExp, newIndexUrl);
+        const persist = persistLogin !== false;
+        await this.saveTokens(newTokens.access_token, finalRefreshToken, newTokens.accessExp, finalRefreshExp, newIndexUrl, persist);
         logger.info(`[认证] refreshAccessToken: 刷新成功，耗时 ${Date.now() - startTime}ms | 新accessExp:`, formatTimestamp(newTokens.accessExp));
 
         // 设置下次刷新（提前5分钟）
@@ -391,6 +404,24 @@ class TokenManager {
   invalidateTokenCache() {
     this._tokenCache = null;
     this._cacheTime = 0;
+  }
+
+  /**
+   * 应用即将退出时：若当前会话为「非持久登录」，清除磁盘上的 access/refresh tokens
+   */
+  clearPersistedTokensIfEphemeral() {
+    try {
+      if (!this.dataStore.get('tokensEphemeral')) {
+        return;
+      }
+      this.dataStore.delete('encryptedData');
+      this.dataStore.delete('tokensEphemeral');
+      this.invalidateTokenCache();
+      this.clearRefreshTimeout();
+      logger.info('[认证] 非持久登录：应用退出时已清除保存的 tokens');
+    } catch (error) {
+      logger.error('[认证] 退出时清除临时会话 tokens 失败:', error);
+    }
   }
 }
 

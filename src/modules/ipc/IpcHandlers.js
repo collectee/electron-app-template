@@ -162,14 +162,14 @@ class IpcHandlers {
    */
   registerTokenHandlers() {
     // 保存Access Token和Refresh Token
-    ipcMain.handle('save-tokens', async (event, accessToken, refreshToken, indexUrl = '/index') => {
+    ipcMain.handle('save-tokens', async (event, accessToken, refreshToken, indexUrl = '/index', persistLogin = true) => {
       try {
         const accessExp = this.extractExpFromToken(accessToken);
         const refreshExp = this.extractExpFromToken(refreshToken);
         
-        logger.info('IPC save-tokens | accessExp:', accessExp, '| refreshExp:', refreshExp);
+        logger.info('IPC save-tokens | accessExp:', accessExp, '| refreshExp:', refreshExp, '| persistLogin:', persistLogin);
         
-        await this.tokenManager.saveTokens(accessToken, refreshToken, accessExp, refreshExp, indexUrl);
+        await this.tokenManager.saveTokens(accessToken, refreshToken, accessExp, refreshExp, indexUrl, persistLogin);
 
         // 异步调度刷新，不阻塞 IPC 返回，避免登录后导航时 token 被覆盖
         setTimeout(() => {
@@ -312,6 +312,7 @@ class IpcHandlers {
 
         // 两种情况都清除 accessToken/refreshToken
         this.dataStore.delete('encryptedData');
+        this.dataStore.delete('tokensEphemeral');
 
         if (!jwtValid) {
           // JWT 已过期：清除所有认证数据
