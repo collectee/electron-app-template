@@ -52,9 +52,11 @@ class IpcHandlers {
    */
   registerSystemHandlers() {
     // 监听渲染进程请求MAC地址等系统信息
-    ipcMain.handle('get-mac', async () => {
+    ipcMain.handle('get-mac', async (event, serialNumber) => {
       try {
-        const mac = await this.deviceJwtGenerator.generateDeviceJwt();
+        const mac = await this.deviceJwtGenerator.generateDeviceJwt({
+          serialNumber,
+        });
         return { success: true, mac: mac };
       } catch (error) {
         return { success: false, error: error.message };

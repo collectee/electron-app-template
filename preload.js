@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 暴露 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
 	// 调用主进程获取 MAC 地址
-	getMAC: () => ipcRenderer.invoke('get-mac'),
+	getMAC: (serialNumber) => ipcRenderer.invoke('get-mac', serialNumber),
 	// 检查 JWT 是否有效
 	checkJwt: (token) => ipcRenderer.invoke('check-jwt', token),
 	// 保存 JWT

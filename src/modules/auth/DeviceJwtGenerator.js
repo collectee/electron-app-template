@@ -33,21 +33,29 @@ class DeviceJwtGenerator {
 
   /**
    * 生成设备JWT
+   * @param {Object} [options]
+   * @param {string} [options.serialNumber] - 用户输入的设备序列号（非空时写入 payload）
    * @returns {string} 设备JWT token
    */
-  async generateDeviceJwt() {
+  async generateDeviceJwt(options = {}) {
+    const raw = options.serialNumber;
+    const serialNumber =
+      typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+
     const payload = {
       mac: this.systemInfo.getMAC(),
       diskId: this.systemInfo.getDiskId(),
       cpuId: this.systemInfo.getCpuId(),
       deviceId: this.systemInfo.getDeviceId(),
     };
+    if (serialNumber) {
+      payload.serialNumber = serialNumber;
+    }
     
     const secret = new TextEncoder().encode('your_secret_key_here'); // 修改：请替换为安全的密钥
     const jwt = await new this.SignJWT(payload)
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .setExpirationTime('1h')
       .sign(secret);
     return jwt;
   }
