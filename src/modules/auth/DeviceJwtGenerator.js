@@ -32,7 +32,7 @@ class DeviceJwtGenerator {
   }
 
   /**
-   * 生成设备JWT
+   * 生成设备JWT（签发后 7 天过期，含 `exp` 声明供全链路校验）
    * @param {Object} [options]
    * @param {string} [options.serialNumber] - 用户输入的设备序列号（非空时写入 payload）
    * @returns {string} 设备JWT token
@@ -56,6 +56,7 @@ class DeviceJwtGenerator {
     const jwt = await new this.SignJWT(payload)
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
+      .setExpirationTime('7d')
       .sign(secret);
     return jwt;
   }
