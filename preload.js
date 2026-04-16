@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 // 暴露 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -104,4 +104,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 		});
 	},
 
+	setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
+	getZoomFactor: () => webFrame.getZoomFactor(),
 }); 
