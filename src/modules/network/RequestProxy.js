@@ -82,9 +82,45 @@ class RequestProxy {
      *   - headers 中其它自定义头会保留
      * @returns {Object} 请求结果 { success, data?, error?, status? }
      */
+    /**
+     * 将请求 URL 归一化到主进程配置的服务器地址。
+     * front-2.1 打包时会把 .env 中的 SERVER/PORT 内联进 bundle，渲染进程传入的
+     * 绝对 URL 会绕过 baseUrl 拼接；主进程配置（env.prod.config.js）才是权威来源。
+     * @param {string} requestUrl
+     * @returns {string}
+     */
+    _resolveProxyUrl(requestUrl) {
+      const server = this.configManager.get('SERVER');
+      const port = this.configManager.get('SERVER_PORT');
+      const baseUrl = `http://${server}:${port}`;
+
+      if (!requestUrl.startsWith('http')) {
+        return `${baseUrl}${requestUrl.startsWith('/') ? '' : '/'}${requestUrl}`;
+      }
+
+      try {
+        const parsed = new URL(requestUrl);
+        const localHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
+        const isLocalHost = localHosts.has(parsed.hostname);
+        const isApiProxy = parsed.pathname.startsWith('/api/proxy');
+        const isConfiguredServer = parsed.hostname === server && String(parsed.port || (parsed.protocol === 'https:' ? '443' : '80')) !== String(port);
+
+        if (!isLocalHost && !isApiProxy && !isConfiguredServer) {
+          return requestUrl;
+        }
+
+        const base = new URL(baseUrl);
+        parsed.protocol = base.protocol;
+        parsed.hostname = base.hostname;
+        parsed.port = base.port;
+        return parsed.toString();
+      } catch (_) {
+        return requestUrl;
+      }
+    }
+
     async proxyRequest(requestConfig) {
-        const baseUrl = `http://${this.configManager.get('SERVER')}:${this.configManager.get('SERVER_PORT')}`;
-        let url = requestConfig.url.startsWith('http') ? requestConfig.url : `${baseUrl}${requestConfig.url}`;
+        let url = this._resolveProxyUrl(requestConfig.url);
 
         // 防御性检测：前端可能将对象直接拼入 URL 导致 [object Object]
         url = this._sanitizeUrl(url);
@@ -108,6 +144,32 @@ class RequestProxy {
       }
 
     /**
+     * 从主进程 token 存储、刷新流程或渲染进程传入的 header 中解析 access token。
+     * 渲染进程 localStorage 在 file:// 下常为空，主进程 electron-store 才是权威来源。
+     * @param {Object} requestConfig
+     * @returns {Promise<{ accessToken: string|null, accessExp: number|null }>}
+     */
+    async _resolveAccessToken(requestConfig) {
+      let { accessToken, accessExp } = await this.tokenManager.decryptTokens();
+
+      if (!accessToken) {
+        await this.tokenManager.refreshAccessToken();
+        ({ accessToken, accessExp } = await this.tokenManager.decryptTokens());
+      }
+
+      if (!accessToken && requestConfig.headers?.Authorization) {
+        const match = String(requestConfig.headers.Authorization).match(/^Bearer\s+(.+)$/i);
+        const candidate = match ? match[1].trim() : '';
+        if (candidate && candidate !== 'null' && candidate !== 'undefined') {
+          accessToken = candidate;
+          accessExp = this.tokenManager.extractExpFromToken(candidate);
+        }
+      }
+
+      return { accessToken, accessExp };
+    }
+
+    /**
      * 实际执行代理请求
      * @param {Object} requestConfig
      * @param {string} url - 完整 URL
@@ -119,7 +181,7 @@ class RequestProxy {
         const fmtTime = (d) => (d || new Date()).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
         try {
           const tBeforeDecrypt = performance.now();
-          const { accessToken, accessExp } = await this.tokenManager.decryptTokens();
+          const { accessToken, accessExp } = await this._resolveAccessToken(requestConfig);
           const decryptMs = Math.round(performance.now() - tBeforeDecrypt);
 
           const fetchConfig = {
@@ -133,6 +195,8 @@ class RequestProxy {
           if (accessToken) {
             fetchConfig.headers['Authorization'] = `Bearer ${accessToken}`;
             fetchConfig.headers['X-Access-Exp'] = accessExp;
+          } else {
+            logger.warn(`[代理] 无 access token，请求可能返回 403: ${fetchConfig.method} ${url}`);
           }
 
           if (requestConfig.data) {
@@ -183,8 +247,13 @@ class RequestProxy {
               }
             }
 
-            logger.info(`[代理] ${fetchConfig.method} ${url} -> ${response.status} 失败 [时间: ${new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })}]`);
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const errMsg = (data && typeof data === 'object' && (data.message || data.error))
+              || (typeof data === 'string' && data)
+              || `HTTP ${response.status}: ${response.statusText}`;
+            logger.info(`[代理] ${fetchConfig.method} ${url} -> ${response.status} 失败: ${errMsg} [时间: ${new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })}]`);
+            const err = new Error(errMsg);
+            err.status = response.status;
+            throw err;
           }
 
           logger.info(`[代理] ${fetchConfig.method} ${url} -> ${response.status} [完成: ${fmtTime(new Date())}] [总耗时: ${totalMs}ms]`);

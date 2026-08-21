@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "electron-sample-app 桌面客户端架构",
+    "output": "electron-sample-app-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/collectee/electron-sample-app",
+      "revision": "60866eba41e70407824b6474de3d217e76c5d9c8"
+    },
+    "views": [
+      { "id": "login-flow", "label": "登录与启动", "focus": ["user", "main", "windowMgr", "pages", "preload", "ipc", "jwt", "tokenMgr"], "note": "从启动到设备认证、令牌落盘的完整流程。" },
+      { "id": "api-path", "label": "API 代理链路", "focus": ["pages", "preload", "ipc", "requestProxy", "api"], "note": "渲染页面请求经 IPC 代理到 server-1，401 自动刷新后重试。" },
+      { "id": "security", "label": "安全与令牌", "focus": ["jwt", "tokenMgr", "urlInterceptor", "api"], "note": "加密存储、设备绑定与请求头注入三条防线。" }
+    ]
+  },
+  "components": [
+    { "id": "pages", "type": "frontend", "label": "渲染页面", "sublabel": "dist/login.html · [hash].html", "pos": [570, 150], "size": [170, 64], "tag": "login-page + front-2.1 构建产物" },
+    { "id": "preload", "type": "security", "label": "preload.js", "sublabel": "contextBridge · electronAPI", "pos": [890, 150], "size": [170, 64], "sources": [{ "path": "preload.js" }] },
+    { "id": "user", "type": "external", "label": "桌面用户", "sublabel": "Windows 客户端", "pos": [50, 560], "size": [150, 64] },
+    { "id": "main", "type": "backend", "label": "主进程 main.js", "sublabel": "模块编排 · AppLifecycle", "pos": [290, 560], "size": [170, 64], "tag": "入口", "sources": [{ "path": "src/main.js" }] },
+    { "id": "windowMgr", "type": "frontend", "label": "WindowManager", "sublabel": "窗口 · 导航 · 标题栏", "pos": [570, 560], "size": [170, 64], "sources": [{ "path": "src/modules/window/WindowManager.js" }] },
+    { "id": "ipc", "type": "backend", "label": "IpcHandlers", "sublabel": "ipcMain 处理器", "pos": [890, 560], "size": [170, 64], "sources": [{ "path": "src/modules/ipc/IpcHandlers.js" }] },
+    { "id": "requestProxy", "type": "backend", "label": "RequestProxy", "sublabel": "net.fetch · 401 重试", "pos": [1130, 560], "size": [180, 64], "tag": "GET 去重", "sources": [{ "path": "src/modules/network/RequestProxy.js" }] },
+    { "id": "api", "type": "external", "label": "server-1 API 网关", "sublabel": "dev :3000 · prod :80", "pos": [1490, 560], "size": [200, 70], "tag": "/api/proxy/* → server-2 Strapi :3001" },
+    { "id": "jwt", "type": "security", "label": "JwtVerifier", "sublabel": "RSA 校验 · 设备绑定", "pos": [750, 740], "size": [170, 64], "tag": "MAC / CPU / 磁盘", "sources": [{ "path": "src/modules/auth/JwtVerifier.js" }, { "path": "src/modules/auth/DeviceJwtGenerator.js" }] },
+    { "id": "tokenMgr", "type": "security", "label": "TokenManager", "sublabel": "AES-256-CBC · safeStorage", "pos": [1010, 740], "size": [170, 64], "tag": "到期前 5 分钟自动刷新", "sources": [{ "path": "src/modules/auth/TokenManager.js" }] },
+    { "id": "urlInterceptor", "type": "security", "label": "UrlInterceptor", "sublabel": "webRequest 拦截", "pos": [1250, 740], "size": [180, 64], "tag": "Auth 头 / CORS / file://", "sources": [{ "path": "src/modules/network/UrlInterceptor.js" }] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "渲染进程 (Chromium · file://)", "wraps": ["pages", "preload"] },
+    { "kind": "region", "label": "Electron 主进程 (Node.js)", "wraps": ["main", "windowMgr", "ipc", "requestProxy", "jwt", "tokenMgr", "urlInterceptor"] }
+  ],
+  "connections": [
+    { "id": "user-launch", "from": "user", "to": "main", "label": "启动应用", "variant": "emphasis" },
+    { "id": "main-window", "from": "main", "to": "windowMgr", "label": "createWindow()", "labelAt": [515, 640] },
+    { "id": "win-pages", "from": "windowMgr", "to": "pages", "label": "loadLoginPage() / navigate()" },
+    { "id": "pages-bridge", "from": "pages", "to": "preload", "label": "window.electronAPI" },
+    { "id": "bridge-ipc", "from": "preload", "to": "ipc", "label": "invoke → ipcMain.handle", "labelAt": [975, 278] },
+    { "id": "ipc-proxy", "from": "ipc", "to": "requestProxy", "label": "proxyRequest()", "labelAt": [1095, 640] },
+    { "id": "proxy-api", "from": "requestProxy", "to": "api", "label": "HTTPS · Bearer", "variant": "emphasis" },
+    { "id": "ipc-jwt", "from": "ipc", "to": "jwt", "label": "校验 / 生成 JWT", "fromSide": "bottom", "toSide": "top" },
+    { "id": "ipc-token", "from": "ipc", "to": "tokenMgr", "label": "存取令牌", "fromSide": "bottom", "toSide": "top" },
+    { "id": "intercept-api", "from": "urlInterceptor", "to": "api", "label": "注入 Auth 头 · CORS", "variant": "security", "fromSide": "top", "toSide": "bottom", "via": [[1340, 680], [1590, 680]], "labelAt": [1465, 690] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "启动流程", "items": ["AppLifecycle.whenReady → createWindow()", "DIRECT_LOAD_LAST_PAGE 开启且 refreshToken 有效 → 恢复上次页面，否则加载登录页；did-finish-load 按 verifyStoredJwt 分支"] },
+    { "dot": "emerald", "title": "请求主路径", "items": ["渲染进程经 preload contextBridge 调 window.electronAPI → IpcHandlers 分发", "RequestProxy 用 net.fetch 代发、主进程注入 Bearer；401 自动刷新重试一次，相同 GET 去重"] },
+    { "dot": "rose", "title": "安全设计", "items": ["TokenManager：AES-256-CBC + safeStorage 加密，60s 缓存，到期前 5 分钟自动刷新", "JwtVerifier：RSA 公钥 (jose) 校验 + 设备绑定；UrlInterceptor 注入 Auth 头并修复 file:// 资源"] }
+  ]
+}

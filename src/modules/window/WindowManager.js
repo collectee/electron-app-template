@@ -17,6 +17,7 @@ class WindowManager {
     this.win = null;
     this.loadingView = null;
     this.dataStore = null; // 用于持久化最后访问的页面
+    this.tokenManager = null;
   }
 
   /**
@@ -25,6 +26,35 @@ class WindowManager {
    */
   setDataStore(store) {
     this.dataStore = store;
+  }
+
+  /**
+   * 设置 TokenManager，用于页面加载后将 access token 同步到渲染进程 localStorage
+   * @param {Object} tokenManager
+   */
+  setTokenManager(tokenManager) {
+    this.tokenManager = tokenManager;
+  }
+
+  /**
+   * 将主进程中的 access token 写入渲染进程 localStorage，供 front-2.1 读取
+   * @private
+   */
+  async _syncTokenToRenderer() {
+    if (!this.tokenManager || !this.win?.webContents) {
+      return;
+    }
+    try {
+      const { accessToken } = await this.tokenManager.decryptTokens();
+      if (!accessToken) {
+        return;
+      }
+      const script = `(function(){try{localStorage.setItem('jwt',${JSON.stringify(accessToken)});}catch(e){}})()`;
+      await this.win.webContents.executeJavaScript(script, true);
+      log.info('[导航] 已将 access token 同步到渲染进程 localStorage');
+    } catch (err) {
+      log.error('[导航] 同步 access token 到渲染进程失败:', err.message);
+    }
   }
 
   /**
@@ -51,7 +81,7 @@ class WindowManager {
         nodeIntegration: false,
         contextIsolation: true,
         enableRemoteModule: false,
-        devTools: !isProduction,
+        devTools: true,
         backgroundThrottling: false
       },
     });
@@ -97,9 +127,7 @@ class WindowManager {
     this.win.once('ready-to-show', () => {
       this.hideLoadingOverlay();
       this.win.show();
-      if (!app.isPackaged) {
-        this.win.webContents.openDevTools();
-      }
+      this.win.webContents.openDevTools();
     });
 
     // 监听页面导航与加载阶段，显示/隐藏加载覆盖层
@@ -407,9 +435,21 @@ class WindowManager {
       }
       log.info('[导航] 加载:', normalizedUrl);
       this.showLoadingOverlay();
-      return this.win.loadURL(normalizedUrl).then(() => {
+      const loadPromise = (async () => {
+        if (normalizedUrl.startsWith('file://')) {
+          const filePath = new URL(normalizedUrl).pathname;
+          const decodedPath = process.platform === 'win32' && filePath.startsWith('/')
+            ? filePath.slice(1)
+            : filePath;
+          const query = await this._buildLoadQuery();
+          await this.win.loadFile(decodedPath, query ? { query } : undefined);
+        } else {
+          await this.win.loadURL(normalizedUrl);
+        }
+        await this._syncTokenToRenderer();
         log.info(`[导航耗时] 加载URL完成，耗时 ${Date.now() - startTime}ms | ${normalizedUrl}`);
-      }).catch(err => {
+      })();
+      return loadPromise.catch(err => {
         log.error(`[导航耗时] 加载URL失败，耗时 ${Date.now() - startTime}ms | ${normalizedUrl}`, err);
         this.loadLoginPage();
       });
@@ -777,19 +817,44 @@ class WindowManager {
   }
 
   /**
+   * 构建 loadFile 可选 query（在页面脚本运行前注入 token）
+   * @private
+   * @returns {Promise<{ token?: string }|undefined>}
+   */
+  async _buildLoadQuery() {
+    if (!this.tokenManager) {
+      return undefined;
+    }
+    try {
+      let { accessToken } = await this.tokenManager.decryptTokens();
+      if (!accessToken) {
+        await this.tokenManager.refreshAccessToken();
+        ({ accessToken } = await this.tokenManager.decryptTokens());
+      }
+      return accessToken ? { token: accessToken } : undefined;
+    } catch (err) {
+      log.error('[导航] 读取 access token 失败:', err.message);
+      return undefined;
+    }
+  }
+
+  /**
    * 导航到指定页面
    * @param {string} htmlPath - HTML文件路径（不含扩展名）
    */
-  navigate(htmlPath) {
+  async navigate(htmlPath) {
     const startTime = Date.now();
     const distBase = app.isPackaged ? path.join(app.getAppPath(), 'dist') : path.join(__dirname, '../../../dist');
     const filePath = path.join(distBase, `${htmlPath}.html`);
     log.info(`[导航] navigate -> ${filePath}`);
-    this.win.loadFile(filePath).then(() => {
+    try {
+      const query = await this._buildLoadQuery();
+      await this.win.loadFile(filePath, query ? { query } : undefined);
+      await this._syncTokenToRenderer();
       log.info(`[导航耗时] navigate完成，耗时 ${Date.now() - startTime}ms | ${htmlPath}`);
-    }).catch(err => {
+    } catch (err) {
       log.error(`[导航耗时] navigate失败，耗时 ${Date.now() - startTime}ms | ${htmlPath}`, err);
-    });
+    }
   }
 
   /**

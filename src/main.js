@@ -74,6 +74,7 @@
 
   // 初始化认证相关模块
   const tokenManager = new TokenManager(dataStore, configManager);
+  windowManager.setTokenManager(tokenManager);
   const jwtVerifier = new JwtVerifier(configManager, tokenManager, systemInfo);
   const deviceJwtGenerator = new DeviceJwtGenerator(systemInfo);
 

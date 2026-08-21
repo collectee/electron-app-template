@@ -32,7 +32,8 @@ Fp2D2UnqztfdOUji4vCbwPzIjvRKTOpBIQIDAQAB
   // ===== 调试配置 =====
   // 设为 true 时禁用请求拦截代理，使请求直接从渲染进程发出，
   // 这样 DevTools Network 面板可以看到所有请求（仅用于调试）
-  DEVTOOLS_NETWORK_VISIBLE: true,
+  // 注意：开启后 axios 直连请求不会自动注入 Authorization，可能导致 403 Forbidden
+  DEVTOOLS_NETWORK_VISIBLE: false,
 
   // ===== 静态资源扩展名（不走代理的文件类型） =====
   STATIC_RESOURCE_EXTENSIONS: [
@@ -42,11 +43,11 @@ Fp2D2UnqztfdOUji4vCbwPzIjvRKTOpBIQIDAQAB
 
   // ===== 日志输出控制 =====
   // 控制各类别日志是否输出到终端（true=输出, false=静默）
-  LOG_PROXY: false,          // [代理] 网络代理请求日志
-  LOG_NAVIGATION: true,     // [导航] 页面导航及耗时日志
+  LOG_PROXY: true,          // [代理] 网络代理请求日志
+  LOG_NAVIGATION: false,     // [导航] 页面导航及耗时日志
   LOG_INTERCEPT: false,      // [拦截] URL拦截处理日志
   LOG_IPC: false,            // [IPC] 进程间通信日志
-  LOG_AUTH: true,            // 认证/Token相关日志
+  LOG_AUTH: false,            // 认证/Token相关日志
   LOG_GENERAL: false,         // 其他通用日志
 
   // ===== Electron 构建/下载配置 =====

@@ -112,6 +112,44 @@ class UrlInterceptor {
   }
 
   /**
+   * 将前端内联的后端 API 地址修正为主进程配置的 SERVER:PORT。
+   * ajax 模块在 Electron 中会直接用 axios 发请求（不经 proxyRequest），
+   * 因此需要在 webRequest 层统一修正。
+   * @param {string} url
+   * @returns {string|null} 修正后的 URL；无需修正时返回 null
+   */
+  rewriteBackendApiUrl(url) {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return null;
+    }
+    try {
+      const server = this.configManager.get('SERVER');
+      const port = this.configManager.get('SERVER_PORT');
+      const baseUrl = `http://${server}:${port}`;
+      const parsed = new URL(url);
+      const localHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
+      const isLocalHost = localHosts.has(parsed.hostname);
+      const isApiProxy = parsed.pathname.startsWith('/api/proxy');
+      const configuredPort = String(port);
+      const requestPort = String(parsed.port || (parsed.protocol === 'https:' ? '443' : '80'));
+      const isWrongBackend = parsed.hostname === server && requestPort !== configuredPort;
+
+      if (!isLocalHost && !isApiProxy && !isWrongBackend) {
+        return null;
+      }
+
+      const base = new URL(baseUrl);
+      parsed.protocol = base.protocol;
+      parsed.hostname = base.hostname;
+      parsed.port = base.port;
+      const rewritten = parsed.toString();
+      return rewritten === url ? null : rewritten;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
    * 设置请求拦截器
    * 为窗口的webContents设置各种请求拦截器
    */
@@ -207,6 +245,16 @@ class UrlInterceptor {
             if (normalizedUrl) {
               logger.info(`[拦截] URL规范化: ${url} -> ${normalizedUrl}`);
               callback({ redirectURL: normalizedUrl });
+              return;
+            }
+          }
+
+          // 修正前端 bundle 内联的错误后端地址（如 119.23.253.225:3000 → :80）
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const rewritten = this.rewriteBackendApiUrl(url);
+            if (rewritten) {
+              logger.info(`[拦截] API地址修正: ${url} -> ${rewritten}`);
+              callback({ redirectURL: rewritten });
               return;
             }
           }
